@@ -1,0 +1,25 @@
+{
+    "_id" : {
+        "$oid": "5950ec7490d78f373802856d"
+    },
+    "_app_bundle_id" : "com.2359Media.FoxPlay.alpha",
+    "_country" : "SG",
+    "_isp" : "AS22363 Powerhouse Management, Inc.",
+    "_os" : "iOS",
+    "_os_version" : "10.2.1",
+    "_account_id" : "5950ec6e7766605d3b9c292d",
+    "_ip" : "43.251.165.69",
+    "_sent_at" : Date("2017-06-29T18:10:28.867+07:00"),
+    "_type" : "facebook",
+    "_app_version_code" : "1",
+    "createdAt" : Date("2017-06-29T18:10:28.865+07:00"),
+    "_sdk_version" : "0.14.0",
+    "_free" : false,
+    "_app_version_name" : "1.2.59",
+    "_visit_id" : "iLKKoRLHNT2Gs3XNopyf0Yw",
+    "name" : "_signup",
+    "project_id" : {
+        "$oid": "5865e5a7fba95e82a88072bd"
+    },
+    "profile_id" : "iPf4KwVKPTLeIlbeS20dvHQ"
+}
