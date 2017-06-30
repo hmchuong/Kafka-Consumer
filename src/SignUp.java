@@ -37,6 +37,12 @@ public class SignUp {
             this.project_id = "";
             e.printStackTrace();
         }
+
+        try {
+            this.timeZone = JsonPath.read(document, "$.timezone");
+        }catch (PathNotFoundException e){
+            this.timeZone = null;
+        }
     }
 
     public String toJson(){
