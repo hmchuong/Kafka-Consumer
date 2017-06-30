@@ -24,6 +24,7 @@ public class SignupNode implements Runnable{
         Properties config = new Properties();
         config.put("bootstrap.servers",args.kafka_host);
         config.put("group.id",args.group_id);
+
         config.put("value.deserializer","org.apache.kafka.common.serialization.StringDeserializer");
         config.put("key.deserializer","org.apache.kafka.common.serialization.StringDeserializer");
         consumer = new KafkaConsumer(config);
@@ -60,9 +61,9 @@ public class SignupNode implements Runnable{
      */
     private void processEvent(String json){
         System.out.println("Process main event");
-        SignUp signUp = new SignUp(json);
-        System.out.println("ProjectID: "+signUp.project_id);
-        System.out.println("TimeZone: "+signUp.timeZone);
+        Event event = new Event(json);
+        System.out.println("ProjectID: "+ event.project_id);
+        System.out.println("TimeZone: "+ event.timeZone);
     }
 
     @Override

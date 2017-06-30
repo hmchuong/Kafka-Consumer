@@ -7,11 +7,13 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
+
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.errors.WakeupException;
 import org.bson.Document;
@@ -26,7 +28,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class TransformNode implements Runnable{
     private KafkaConsumer consumer;
     private KafkaProducer producer;
-    String timezone_topic, main_topic, out_topic;
+    //private static OffsetManager offsetManager = new OffsetManager("transform");
+    String timezone_topic, main_topic, prefix_out_topic;
     private final AtomicBoolean shutdown;
     private final CountDownLatch shutdownLatch;
     private final Map<String,Integer> timeZones;
@@ -36,6 +39,9 @@ public class TransformNode implements Runnable{
         Properties config = new Properties();
         config.put("bootstrap.servers",args.kafka_host);
         config.put("group.id",args.group_id);
+        config.put("enable.auto.commit", "false");
+        config.put("heartbeat.interval.ms", "2000");
+        config.put("session.timeout.ms", "6001");
         config.put("value.deserializer","org.apache.kafka.common.serialization.StringDeserializer");
         config.put("key.deserializer","org.apache.kafka.common.serialization.StringDeserializer");
         consumer = new KafkaConsumer(config);
@@ -50,11 +56,13 @@ public class TransformNode implements Runnable{
 
         this.timezone_topic = args.timezone_topic;
         this.main_topic = args.main_topic;
-        this.out_topic = args.out_topic;
+        this.prefix_out_topic = args.prefix_out_topic;
         this.shutdown = new AtomicBoolean(false);
         this.shutdownLatch = new CountDownLatch(1);
         timeZones = new HashMap<>();
         loadTimeZones(args);
+        Producer<String, String> testProducer = producer;
+
     }
 
     /**
@@ -112,7 +120,7 @@ public class TransformNode implements Runnable{
         System.out.println("Loading successfully, received "+timeZones.size()+" documents");
     }
 
-    /** Commit offsets synchronously
+    /** Commit offsets synchronously (at least once)
      * @return successful or not
      */
     private boolean doCommitSync() {
@@ -140,28 +148,33 @@ public class TransformNode implements Runnable{
             updateTimeZone(json);
         }
         System.out.println();
+        //offsetManager.saveOffsetInExternalStore(record.topic(), record.partition(),record.offset());
     }
 
-    /** Process SignUp event
+    /** Process Event event
      * @param json signup json data
      */
     private void processEvent(String json){
         System.out.println("Process main event");
-        SignUp signUp = new SignUp(json);
+        Event event = new Event(json);
         // Mapping project_id with timezone
-        signUp.timeZone = timeZones.get(signUp.project_id);
-        if (signUp.timeZone == null){
+        event.timeZone = timeZones.get(event.project_id);
+        if (event.timeZone == null){
             System.out.println("Not found timezone data");
             return;
         }
-        System.out.println("After mapping: "+signUp.toJson());
+        System.out.println("After mapping: "+ event.toJson());
 
         // Send to output topic
-        sendToTopic(signUp.toJson());
+        sendToTopic(event);
     }
 
-    private void sendToTopic(String json){
-        final ProducerRecord  record= new ProducerRecord<>(out_topic,json);
+    /** Send output to another topic
+     * @param event - transformed event
+     */
+    private void sendToTopic(Event event){
+
+        final ProducerRecord record= new ProducerRecord<>(event.getTopic(this.prefix_out_topic),event.toJson());
             producer.send(record, (recordMetadata, e) -> {
                 if (e!= null){
                     System.out.println("\nSend failed for record: "+record.toString()+"\n");
@@ -194,7 +207,7 @@ public class TransformNode implements Runnable{
         topics.add(timezone_topic);
         System.out.print("Receive message from topics "+ topics.toString());
         try {
-            consumer.subscribe(topics);
+            consumer.subscribe(topics);//, new TransformConsumerRebalanceListener(consumer));
             while (!shutdown.get()) {
                 ConsumerRecords records = consumer.poll(500);
 
@@ -232,7 +245,7 @@ public class TransformNode implements Runnable{
         private String main_topic = "event";
 
         @Parameter(names = {"-prefixOutTopic","-pot"},description = "Prefix of output topic to publish after process event. Default: transformed")
-        private String out_topic = "transformed";
+        private String prefix_out_topic = "transformed";
 
         @Parameter(names = {"-dbHost","-dh"},description = "Host of MongoDB storing TimeZone. Default: localhost:27017")
         private String db_host = "localhost:27017";

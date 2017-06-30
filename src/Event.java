@@ -11,12 +11,13 @@ import java.util.Date;
 /**
  * Created by hmchuong on 28/06/2017.
  */
-public class SignUp {
+public class Event {
     public String project_id;
     public String json;
     public Integer timeZone;
+    public String name;
 
-    public SignUp(String json){
+    public Event(String json){
         Configuration config = Configuration.builder().build();
         config.addOptions(Option.SUPPRESS_EXCEPTIONS);
         Object document = config.jsonProvider().parse(json);
@@ -43,6 +44,12 @@ public class SignUp {
         }catch (PathNotFoundException e){
             this.timeZone = null;
         }
+
+        try {
+            this.name = JsonPath.read(document,"$.name");
+        }catch (PathNotFoundException e){
+            this.name = null;
+        }
     }
 
     public String toJson(){
@@ -50,5 +57,12 @@ public class SignUp {
             return json.substring(0,json.indexOf("{")+1)+"\"timezone\":"+String.valueOf(timeZone)+","+json.substring(json.indexOf("{")+1);
         }
         return json;
+    }
+
+    public String getTopic(String prefix){
+        if (name != null){
+            return prefix+name;
+        }
+        return null;
     }
 }
