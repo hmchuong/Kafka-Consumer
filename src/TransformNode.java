@@ -210,6 +210,7 @@ public class TransformNode implements Runnable{
     }
 
     public void shutdown() throws InterruptedException {
+        System.out.println("Shutdown");
         shutdown.set(true);
         shutdownLatch.await();
     }
@@ -230,8 +231,8 @@ public class TransformNode implements Runnable{
         @Parameter(names = {"-eventTopic","-et"},description = "Event topic for consumer. Default: event")
         private String main_topic = "event";
 
-        @Parameter(names = {"-outputTopic","-ot"},description = "Output topic to publish after process event. Default: signup")
-        private String out_topic = "signup";
+        @Parameter(names = {"-prefixOutTopic","-pot"},description = "Prefix of output topic to publish after process event. Default: transformed")
+        private String out_topic = "transformed";
 
         @Parameter(names = {"-dbHost","-dh"},description = "Host of MongoDB storing TimeZone. Default: localhost:27017")
         private String db_host = "localhost:27017";
