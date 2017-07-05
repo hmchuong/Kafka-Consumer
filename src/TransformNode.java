@@ -1,5 +1,6 @@
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
+import com.beust.jcommander.ParameterException;
 import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.PathNotFoundException;
 import com.mongodb.*;
@@ -13,7 +14,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.errors.WakeupException;
 import org.bson.Document;
@@ -26,15 +26,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Created by hmchuong on 27/06/2017.
  */
 public class TransformNode implements Runnable{
-    private KafkaConsumer consumer;
-    private KafkaProducer producer;
-    //private static OffsetManager offsetManager = new OffsetManager("transform");
+    protected KafkaConsumer consumer;
+    protected KafkaProducer producer;
     String timezone_topic, main_topic, prefix_out_topic;
-    private final AtomicBoolean shutdown;
-    private final CountDownLatch shutdownLatch;
-    private final Map<String,Integer> timeZones;
+    protected final AtomicBoolean shutdown;
+    protected final CountDownLatch shutdownLatch;
+    protected Map<String,Integer> timeZones;
 
-    public TransformNode(Args args){
+    // For testing
+    protected ConsumerRecord lastRecord = null;
+    protected ConsumerRecord firstRecord = null;
+    protected boolean checkAtLeastOnce = false;
+
+    public  TransformNode(){
+        this.shutdown = new AtomicBoolean(false);
+        this.shutdownLatch = new CountDownLatch(1);
+        timeZones = new HashMap<>();
+    }
+
+    public TransformNode(String[] argv){
+        this();
+        setUp(argv);
+    }
+
+    public void setUp(String argv[]){
+        Args args = new Args();
+        args.buildArgument(argv);
         // Create consumer
         Properties config = new Properties();
         config.put("bootstrap.servers",args.kafka_host);
@@ -57,12 +74,9 @@ public class TransformNode implements Runnable{
         this.timezone_topic = args.timezone_topic;
         this.main_topic = args.main_topic;
         this.prefix_out_topic = args.prefix_out_topic;
-        this.shutdown = new AtomicBoolean(false);
-        this.shutdownLatch = new CountDownLatch(1);
-        timeZones = new HashMap<>();
-        loadTimeZones(args);
-        Producer<String, String> testProducer = producer;
 
+        // Load timezone from DB first
+        loadTimeZones(args.db_host,args.db_name, args.collection);
     }
 
     /**
@@ -88,16 +102,18 @@ public class TransformNode implements Runnable{
         mongo.close();
     }
 
-    /** Load timezone data from database
-     * @param args parameters
+    /** Load timezone from MongoDB
+     * @param db_host   address of DB
+     * @param db_name   database name
+     * @param db_collection collection of timezone
      */
-    private void loadTimeZones(Args args) {
+    private void loadTimeZones(String db_host, String db_name, String db_collection) {
         System.out.println("Loading TimeZone data from database");
         try {
-            MongoClient mongo = new MongoClient(args.db_host);
+            MongoClient mongo = new MongoClient(db_host);
 
-            MongoDatabase db = mongo.getDatabase(args.db_name);
-            MongoCollection<Document> table = db.getCollection(args.collection);
+            MongoDatabase db = mongo.getDatabase(db_name);
+            MongoCollection<Document> table = db.getCollection(db_collection);
             FindIterable<Document> find = table.find();
             MongoCursor<Document> cursor = find.iterator();
 
@@ -113,7 +129,7 @@ public class TransformNode implements Runnable{
             }
             mongo.close();
         }catch (MongoTimeoutException e){
-            System.out.println("Cannot connect to DB at " + args.db_host);
+            System.out.println("Cannot connect to DB at " + db_host);
             return;
         }
 
@@ -137,18 +153,21 @@ public class TransformNode implements Runnable{
      * @param record record to process
      */
     private void processMessage(ConsumerRecord record){
+        if (firstRecord == null){
+            firstRecord = record;
+        }
+        lastRecord = record;
         String topic = record.topic();
         String json = (String) record.value();
         System.out.println("Received topic: "+topic);
         if (topic.equals(main_topic)){
-            // Process signup event
+            // Process main event
             processEvent(json);
         }else{
             // Process timezone event
             updateTimeZone(json);
         }
         System.out.println();
-        //offsetManager.saveOffsetInExternalStore(record.topic(), record.partition(),record.offset());
     }
 
     /** Process Event event
@@ -187,7 +206,7 @@ public class TransformNode implements Runnable{
     /** Update timezone data
      * @param json timezone json
      */
-    private void updateTimeZone(String json){
+    protected void updateTimeZone(String json){
         System.out.println("Processing timezone update event");
         try {
             String id = JsonPath.read(json, "$.project_id");
@@ -202,6 +221,7 @@ public class TransformNode implements Runnable{
 
     @Override
     public void run() {
+        firstRecord = null;
         List<String> topics = new ArrayList<>();
         topics.add(main_topic);
         topics.add(timezone_topic);
@@ -212,7 +232,9 @@ public class TransformNode implements Runnable{
                 ConsumerRecords records = consumer.poll(500);
 
                 records.forEach(record -> processMessage((ConsumerRecord)record));
-
+                if (checkAtLeastOnce){
+                    break;
+                }
                 doCommitSync();
             }
         }catch (WakeupException e){
@@ -231,39 +253,56 @@ public class TransformNode implements Runnable{
     /**
      * Class for JCommander
      */
-    public static class Args{
-        @Parameter(names = {"-kafHost","-kh"}, description = "bootstrap.servers: host of kafka. Default: localhost:9092")
+    private class Args{
+        @Parameter(names = {"-kafHost","-kh"}, description = "bootstrap.servers: host of kafka.")
         private String kafka_host = "localhost:9092";
 
-        @Parameter(names = {"-groupId","-gi"},description = "Group Id of consumer. Default: id0")
-        private String group_id = "id0";
+        @Parameter(names = {"-groupId","-gi"},description = "Group Id of consumer", required = true)
+        private String group_id;
 
-        @Parameter(names = {"-timezoneTopic", "-tt"},description = "Timezone topic for consumer. Default: timezone")
-        private String timezone_topic = "timezone";
+        @Parameter(names = {"-timezoneTopic", "-tt"},description = "Timezone topic for consumer.", required = true)
+        private String timezone_topic;
 
-        @Parameter(names = {"-eventTopic","-et"},description = "Event topic for consumer. Default: event")
-        private String main_topic = "event";
+        @Parameter(names = {"-eventTopic","-et"},description = "Event topic for consumer.", required = true)
+        private String main_topic;
 
-        @Parameter(names = {"-prefixOutTopic","-pot"},description = "Prefix of output topic to publish after process event. Default: transformed")
-        private String prefix_out_topic = "transformed";
+        @Parameter(names = {"-prefixOutTopic","-pot"},description = "Prefix of output topic to publish after process event.", required = true)
+        private String prefix_out_topic;
 
-        @Parameter(names = {"-dbHost","-dh"},description = "Host of MongoDB storing TimeZone. Default: localhost:27017")
+        @Parameter(names = {"-dbHost","-dh"},description = "Host of MongoDB storing TimeZone.")
         private String db_host = "localhost:27017";
 
-        @Parameter(names = {"-dbName","-dn"},description = "Name of database storing TimeZone. Default: hasBrain")
-        private String db_name = "hasBrain";
+        @Parameter(names = {"-dbName","-dn"},description = "Name of database storing TimeZone.", required = true)
+        private String db_name;
 
-        @Parameter(names = {"-collection","-c"},description = "Collection storing TimeZone. Default: timezone")
-        private String collection = "timezone";
+        @Parameter(names = {"-collection","-c"},description = "Collection storing TimeZone.", required = true)
+        private String collection;
+
+        @Parameter(names = {"--help","--h"}, help = true)
+        private boolean help;
+
+        private void buildArgument(String[] argv){
+            JCommander jcommander = JCommander.newBuilder().build();
+            jcommander.addObject(this);
+            try {
+                jcommander.parse(argv);
+            }catch (ParameterException e){
+                System.out.println(e.getMessage());
+                e.getJCommander().usage();
+                System.exit(1);
+            }
+            if (this.help){
+                jcommander.usage();
+                System.exit(1);
+            }
+        }
     }
+
+
 
     public static void main(String[] argv){
         //TransformNode.sampleData();
-        Args args = new Args();
-        JCommander.newBuilder()
-                .addObject(args)
-                .build()
-                .parse(argv);
-        (new TransformNode(args)).run();
+
+        (new TransformNode(argv)).run();
     }
 }
