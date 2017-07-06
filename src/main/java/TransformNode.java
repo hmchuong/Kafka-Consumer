@@ -62,11 +62,11 @@ public class TransformNode implements Runnable{
     }
 
     /** Setup node with arguments list
-     * @param argv arguments list
+     * @param args arguments list
      */
-    public void setUp(String argv[]){
+    public void setUp(String args[]){
         ArgumentParser argumentParser = new ArgumentParser();
-        argumentParser.buildArgument(argv);
+        argumentParser.buildArgument(args);
 
         // Create consumer
         Properties config = new Properties();
@@ -312,11 +312,11 @@ public class TransformNode implements Runnable{
         @Parameter(names = {"-collection","-c"},description = "Collection storing TimeZone.", required = true)
         private String collection;
 
-        @Parameter(names = {"--help","--h"}, help = true)
+        @Parameter(names = {"--help","--h"},description = "For help",help = true)
         private boolean help;
 
         @Parameter(names = {"--verbose","--v"}, description = "Logging everything")
-        private int verbose = 0; 
+        private int verbose = 1;
 
         private void buildArgument(String[] argv){
             JCommander jcommander = JCommander.newBuilder().build();
