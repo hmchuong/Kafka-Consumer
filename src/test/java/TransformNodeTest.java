@@ -21,11 +21,18 @@ public class TransformNodeTest extends TransformNode{
         super.setUp(args);
     }
 
+    /**
+     * Print test name before every thing
+     * @param name - name of test
+     */
     void printTestName(String name){
         System.out.println();
         System.out.println("---------- Test: "+name+" ----------");
     }
 
+    /**
+     * Print passed result
+     */
     void printSuccess(){
         System.out.println();
         System.out.println("--> Passed");
