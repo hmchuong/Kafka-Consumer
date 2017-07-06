@@ -50,7 +50,7 @@ public class BaseConsumer implements Runnable{
 
     @Override
     public void run() {
-        System.out.print("Receive message from topics "+ topics.toString());
+        //System.out.print("Receive message from topics "+ topics.toString());
         try {
             consumer.subscribe(topics);
             while (!shutdown.get()) {

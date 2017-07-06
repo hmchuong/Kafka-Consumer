@@ -38,6 +38,7 @@ public class TransformNode implements Runnable{
     protected ConsumerRecord lastMessage = null;
     protected ConsumerRecord firstMessage = null;
     protected boolean checkAtLeastOnce = false;
+    protected boolean verbose = true;
 
     public  TransformNode(){
         this.shutdown = new AtomicBoolean(false);
@@ -48,6 +49,16 @@ public class TransformNode implements Runnable{
     public TransformNode(String[] argv){
         this();
         setUp(argv);
+    }
+
+    /**
+     * Print message to console 
+     * @param message - string to print
+     */
+    void log(String message){
+        if (verbose){
+            System.out.println(message);
+        }
     }
 
     /** Setup node with arguments list
@@ -80,6 +91,8 @@ public class TransformNode implements Runnable{
         this.timezoneTopic = argumentParser.timezoneTopic;
         this.untransformedTopic = argumentParser.mainTopic;
         this.prefixOfOutTopic = argumentParser.prefixOfOutTopic;
+        
+        this.verbose = (argumentParser.verbose == 0) ? false: true;
 
         // Load timezones from DB first
         loadTimeZones(argumentParser.dbHost, argumentParser.dbName, argumentParser.collection);
@@ -114,7 +127,7 @@ public class TransformNode implements Runnable{
      * @param dbCollection collection of timezone
      */
     private void loadTimeZones(String dbHost, String dbName, String dbCollection) {
-        System.out.println("Loading TimeZone data from database");
+        log("Loading TimeZone data from database");
         try {
             MongoClient mongo = new MongoClient(dbHost);
 
@@ -135,11 +148,11 @@ public class TransformNode implements Runnable{
             }
             mongo.close();
         }catch (MongoTimeoutException e){
-            System.out.println("Cannot connect to DB at " + dbHost);
+            log("Cannot connect to DB at " + dbHost);
             return;
         }
 
-        System.out.println("Loading successfully, received "+timeZones.size()+" documents");
+        log("Loading successfully, received "+timeZones.size()+" documents");
     }
 
     /** Commit offsets synchronously
@@ -150,7 +163,7 @@ public class TransformNode implements Runnable{
             consumer.commitSync();
             return true;
         } catch (CommitFailedException e) {
-            System.out.println("Commit failed "+ e);
+            log("Commit failed "+ e);
             return false;
         }
     }
@@ -175,23 +188,23 @@ public class TransformNode implements Runnable{
             // Process timezone update event
             updateTimeZone(messageValue);
         }
-        System.out.println();
+        log("\n");
     }
 
     /** Process transform event
      * @param json signup json data
      */
     private void processTransformEvent(String json){
-        System.out.println("Process transform event");
+        log("Process transform event");
         Event event = new Event(json);
 
         // Mapping project_id with timezone
         event.setTimeZone(timeZones.get(event.getProjectId()));
         if (event.getTimeZone() == null){
-            System.out.println("Not found timezone data");
+            log("Not found timezone data");
             return;
         }
-        System.out.println("After mapping: "+ event.toString());
+        log("After mapping: "+ event.toString());
 
         // Send to output topic
         sendToOutputTopic(event);
@@ -205,9 +218,9 @@ public class TransformNode implements Runnable{
         final ProducerRecord record= new ProducerRecord<>(event.getOutTopic(this.prefixOfOutTopic),event.toString());
         producer.send(record, (recordMetadata, e) -> {
             if (e!= null){
-                System.out.println("\nSend failed for record: "+record.toString()+"\n");
+                log("\nSend failed for record: "+record.toString()+"\n");
             }else{
-                System.out.println("Send successfully to "+recordMetadata.topic()+" at partition "+String.valueOf(recordMetadata.partition())+"\n");
+                log("Send successfully to "+recordMetadata.topic()+" at partition "+String.valueOf(recordMetadata.partition())+"\n");
             }
         });
     }
@@ -216,15 +229,17 @@ public class TransformNode implements Runnable{
      * @param json timezone json
      */
     protected void updateTimeZone(String json){
-        System.out.println("Processing timezone update event");
+        log("Processing timezone update event");
         try {
             String projectId = JsonPath.read(json, "$.project_id");
             Integer timezone = JsonPath.read(json, "$.timezone");
             timeZones.put(projectId, timezone);
-            System.out.println("Updated "+projectId+" with timezone "+timezone);
+            log("Updated "+projectId+" with timezone "+timezone);
         }catch (PathNotFoundException e){
-            e.printStackTrace();
-            System.out.println("Update timezone failed");
+            if (verbose) {
+                e.printStackTrace();
+            }
+            log("Update timezone failed");
         }
     }
 
@@ -237,7 +252,7 @@ public class TransformNode implements Runnable{
         List<String> topics = new ArrayList<>();
         topics.add(untransformedTopic);
         topics.add(timezoneTopic);
-        System.out.print("Receive message from topics "+ topics.toString());
+        log("Receive message from topics "+ topics.toString());
         try {
             // Subscribe topics to receive message
             consumer.subscribe(topics);
@@ -264,7 +279,7 @@ public class TransformNode implements Runnable{
      * @throws InterruptedException
      */
     public void shutdown() throws InterruptedException {
-        System.out.println("Shutdown");
+        log("Shutdown");
         shutdown.set(true);
         shutdownLatch.await();
     }
@@ -300,13 +315,16 @@ public class TransformNode implements Runnable{
         @Parameter(names = {"--help","--h"}, help = true)
         private boolean help;
 
+        @Parameter(names = {"--verbose","--v"}, description = "Logging everything")
+        private int verbose = 0; 
+
         private void buildArgument(String[] argv){
             JCommander jcommander = JCommander.newBuilder().build();
             jcommander.addObject(this);
             try {
                 jcommander.parse(argv);
             }catch (ParameterException e){
-                System.out.println(e.getMessage());
+                log(e.getMessage());
                 e.getJCommander().usage();
                 System.exit(1);
             }
